@@ -3,109 +3,108 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <title>เครื่องดนตรีมือซ้าย-ขวา (อัปเกรด)</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Music Controller</title>
+    <!-- โหลดไลบรารีผ่าน HTTPS ตรงตามมาตรฐาน -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; }
-        #canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform: scaleX(-1); }
-        #ui { position: absolute; top: 10px; width: 100%; z-index: 10; pointer-events: none; }
-        .box { display: inline-block; padding: 15px; margin: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; }
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 1; }
+        .ui { position: relative; z-index: 2; margin-top: 20px; text-align: center; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; }
     </style>
 </head>
 <body>
 
-<div id="ui">
-    <div class="box">มือซ้าย (กลอง): <span id="left-status">-</span></div>
-    <div class="box">มือขวา (ทำนอง): <span id="right-status">0</span></div>
+<div class="ui">
+    <h1>Hand Music Controller</h1>
+    <p>มือซ้าย: โป้ง(Kick), ชี้(Hi-hat), กลาง(Snare) | มือขวา: เล่นโน้ต</p>
+    <div id="status">รอเริ่มต้น...</div>
 </div>
+
 <video id="video" style="display:none"></video>
 <canvas id="canvas"></canvas>
 
 <script>
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    function playDrum(type) {
+
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        
-        if(type === 'kick') { // นิ้วโป้ง: กระเดื่อง (ความถี่ต่ำ)
+
+        if (type === 'kick') {
             osc.frequency.setValueAtTime(100, audioCtx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.1);
             gain.gain.setValueAtTime(1, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-        } else if(type === 'snare') { // นิ้วกลาง: Snare
+        } else if (type === 'snare') {
             osc.type = 'square';
             osc.frequency.setValueAtTime(200, audioCtx.currentTime);
             gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        } else if(type === 'hihat') { // นิ้วชี้: Hi-hat
+        } else if (type === 'hihat') {
             osc.type = 'triangle';
             osc.frequency.setValueAtTime(2000, audioCtx.currentTime);
             gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+        } else {
+            osc.frequency.setValueAtTime(type, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
         }
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.2);
-    }
-
-    function playMelody(fingers) {
-        const freqs = [0, 261.6, 293.7, 329.6, 392.0];
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.frequency.setValueAtTime(freqs[fingers] || 440, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.5);
     }
 
-    let lastLeft = { thumb: false, index: false, middle: false };
+    let lastStates = { left: { thumb: false, index: false, middle: false }, right: 0 };
 
-    function onResults(results) {
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    hands.onResults((results) => {
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         canvas.width = window.innerWidth; canvas.height = window.innerHeight;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (results.multiHandLandmarks && results.multiHandedness) {
+        if (results.multiHandLandmarks) {
             results.multiHandLandmarks.forEach((landmarks, index) => {
                 const handedness = results.multiHandedness[index].label;
-                
                 if (handedness === 'Left') {
-                    // ตรวจจับนิ้วมือซ้าย
-                    const isThumbUp = landmarks[4].x > landmarks[3].x; // ตรวจจับนิ้วโป้ง (ซ้าย)
-                    const isIndexUp = landmarks[8].y < landmarks[6].y;
-                    const isMiddleUp = landmarks[12].y < landmarks[10].y;
-
-                    if (isThumbUp && !lastLeft.thumb) { playDrum('kick'); document.getElementById('left-status').innerText = 'Kick'; }
-                    if (isIndexUp && !lastLeft.index) { playDrum('hihat'); document.getElementById('left-status').innerText = 'Hi-hat'; }
-                    if (isMiddleUp && !lastLeft.middle) { playDrum('snare'); document.getElementById('left-status').innerText = 'Snare'; }
-                    
-                    lastLeft = { thumb: isThumbUp, index: isIndexUp, middle: isMiddleUp };
+                    const thumb = landmarks[4].x > landmarks[3].x;
+                    const indexF = landmarks[8].y < landmarks[6].y;
+                    const mid = landmarks[12].y < landmarks[10].y;
+                    if (thumb && !lastStates.left.thumb) playSound('kick');
+                    if (indexF && !lastStates.left.index) playSound('hihat');
+                    if (mid && !lastStates.left.middle) playSound('snare');
+                    lastStates.left = { thumb, index: indexF, middle: mid };
                 } else {
-                    // มือขวา (Melody)
-                    let fingers = 0;
-                    if (landmarks[8].y < landmarks[6].y) fingers++;
-                    if (landmarks[12].y < landmarks[10].y) fingers++;
-                    if (landmarks[16].y < landmarks[14].y) fingers++;
-                    if (landmarks[20].y < landmarks[18].y) fingers++;
-                    document.getElementById('right-status').innerText = fingers;
+                    let f = 0;
+                    if (landmarks[8].y < landmarks[6].y) f++;
+                    if (landmarks[12].y < landmarks[10].y) f++;
+                    if (landmarks[16].y < landmarks[14].y) f++;
+                    if (landmarks[20].y < landmarks[18].y) f++;
+                    if (f > 0 && f !== lastStates.right) {
+                        playSound(200 + (f * 50));
+                        lastStates.right = f;
+                    } else if (f === 0) lastStates.right = 0;
                 }
             });
         }
-    }
-
-    const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
-    hands.setOptions({ maxNumHands: 2, modelComplexity: 1 });
-    hands.onResults(onResults);
+    });
 
     const video = document.getElementById('video');
-    new Camera(video, { onFrame: async () => await hands.send({image: video}), width: 640, height: 480 }).start();
+    const camera = new Camera(video, {
+        onFrame: async () => { await hands.send({ image: video }); },
+        width: 640, height: 480
+    });
+    camera.start();
 </script>
 </body>
 </html>
