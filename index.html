@@ -5,13 +5,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hand Music Controller</title>
-    <!-- โหลดไลบรารีผ่าน HTTPS ตรงตามมาตรฐาน -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
         #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); z-index: 1; }
-        .ui { position: relative; z-index: 2; margin-top: 20px; text-align: center; background: rgba(0,0,0,0.5); padding: 15px; border-radius: 10px; }
+        .ui { position: relative; z-index: 2; margin-top: 20px; text-align: center; background: rgba(0,0,0,0.6); padding: 15px; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -19,7 +19,7 @@
 <div class="ui">
     <h1>Hand Music Controller</h1>
     <p>มือซ้าย: โป้ง(Kick), ชี้(Hi-hat), กลาง(Snare) | มือขวา: เล่นโน้ต</p>
-    <div id="status">รอเริ่มต้น...</div>
+    <div id="status">กำลังเริ่มต้นกล้อง...</div>
 </div>
 
 <video id="video" style="display:none"></video>
@@ -60,6 +60,8 @@
     }
 
     let lastStates = { left: { thumb: false, index: false, middle: false }, right: 0 };
+    const canvasElement = document.getElementById('canvas');
+    const canvasCtx = canvasElement.getContext('2d');
 
     const hands = new Hands({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -68,12 +70,18 @@
     hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
     hands.onResults((results) => {
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvasElement.width = window.innerWidth;
+        canvasElement.height = window.innerHeight;
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
         if (results.multiHandLandmarks) {
+            for (const landmarks of results.multiHandLandmarks) {
+                // วาดโครงสร้างมือบน Canvas
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
+                drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
+            }
+
+            // ตรรกะเสียงตามจำนวนนิ้ว
             results.multiHandLandmarks.forEach((landmarks, index) => {
                 const handedness = results.multiHandedness[index].label;
                 if (handedness === 'Left') {
@@ -96,6 +104,9 @@
                     } else if (f === 0) lastStates.right = 0;
                 }
             });
+            document.getElementById('status').innerText = "กำลังเล่นดนตรี...";
+        } else {
+            document.getElementById('status').innerText = "กรุณาเอามือเข้ากล้อง";
         }
     });
 
